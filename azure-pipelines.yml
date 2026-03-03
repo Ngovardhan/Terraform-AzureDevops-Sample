@@ -1,0 +1,75 @@
+trigger:
+- main
+
+stages:
+- stage: Build
+  displayName: CI - Terraform Validate & Plan
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      name: "azureagent"
+
+    steps:
+    # (Optional) Ensure a known Terraform version is available on the agent
+    - task: TerraformInstaller@1
+      displayName: Install Terraform
+      inputs:
+        terraformVersion: '1.6.6'   # pin a version your team uses
+
+    # Terraform init (with remote backend on Azure Storage)
+    - task: TerraformTask@5
+      displayName: Tf init
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: '$(Build.SourcesDirectory)'
+        backendServiceArm: 'SC-WIF-AzureRM'
+        backendAzureRmResourceGroupName: 'demo-resources'
+        backendAzureRmStorageAccountName: 'samplestorageacgopi'
+        backendAzureRmContainerName: 'prod-tfstate'
+        backendAzureRmKey: 'prod.terraform.tfstate'
+
+    # Validate configuration
+    - task: TerraformTask@5
+      displayName: Tf validate
+      inputs:
+        provider: 'azurerm'
+        command: 'validate'
+        workingDirectory: '$(Build.SourcesDirectory)'
+
+    # Format (non-destructive)
+    - task: TerraformTask@5
+      displayName: Tf fmt
+      inputs:
+        provider: 'azurerm'
+        command: 'custom'
+        workingDirectory: '$(Build.SourcesDirectory)'
+        outputTo: 'console'
+        customCommand: 'fmt'
+        environmentServiceNameAzureRM: 'SC-WIF-AzureRM'
+
+    # Plan (export plan file to include in artifacts)
+    - task: TerraformTask@5
+      displayName: Tf plan
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        workingDirectory: '$(Build.SourcesDirectory)'
+        commandOptions: '-out=tfplan'
+        environmentServiceNameAzureRM: 'SC-WIF-AzureRM'
+
+    # Archive Terraform code + plan (no extra root folder)
+    - task: ArchiveFiles@2
+      displayName: Archive files
+      inputs:
+        rootFolderOrFile: '$(Build.SourcesDirectory)/'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+        replaceExistingArchive: true
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: '$(Build.BuildId)-build'
+        publishLocation: 'Container'
